@@ -42,7 +42,6 @@ async function updateImports(oldPath: string, newPath: string): Promise<void> {
     const oldDir = path.dirname(oldPath);
     const newDir = path.dirname(newPath);
 
-    // 在文件被移动之前读取内容
     const movedFileContent = await vscode.workspace.fs.readFile(vscode.Uri.file(oldPath));
     const movedFileDefinitions = getFileDefinitions(movedFileContent.toString());
 
@@ -54,16 +53,12 @@ async function updateImports(oldPath: string, newPath: string): Promise<void> {
         let text = content.toString();
 
         if (filePath === oldPath) {
-            // 情况1: 移动文件本身
             text = updateMovedFile(text, newPackageName);
         } else if (path.dirname(filePath) === oldDir) {
-            // 情况2: 和移动文件处于同一目录
             text = updateSameDirectoryFile(text, movedFileDefinitions, newPackageName, newImportPath);
         } else if (path.dirname(filePath) === newDir) {
-            // 情况4: 移动文件的目标目录
             text = updateTargetDirectoryFile(text, oldImportPath, oldPackageName, movedFileDefinitions);
         } else {
-            // 情况3: 和移动文件处于不同目录，但调用移动文件中的函数
             text = updateDifferentDirectoryFile(text, oldImportPath, newImportPath, oldPackageName, newPackageName);
         }
         if (text !== content.toString()) {
@@ -123,23 +118,30 @@ function updateMovedFile(text: string, newPackageName: string): string {
 }
 
 function updateSameDirectoryFile(text: string, movedFileDefinitions: string[], newPackageName: string, newImportPath: string): string {
-    // 添加新的import语句
     const importStatement = `"${newImportPath}"`;
-    const importRegex = /import\s*\(([\s\S]*?)\)/;
-    const importMatch = text.match(importRegex);
+    const singleImportRegex = /^import\s+"[^"]+"\s*$/m;
+    const multiImportRegex = /import\s*\(([\s\S]*?)\)/;
 
-    if (importMatch) {
-        // 如果已经有import块，在其中添加新的import
-        if (!importMatch[1].includes(importStatement)) {
-            text = text.replace(importRegex, (match) => {
-                return match.slice(0, -1) + `\t${importStatement}\n)`;
+    if (multiImportRegex.test(text)) {
+        // 处理多行 import 块
+        text = text.replace(multiImportRegex, (match, imports) => {
+            if (!imports.includes(importStatement)) {
+                return `import (\n${imports}\t${importStatement}\n)`;
+            }
+            return match;
+        });
+    } else if (singleImportRegex.test(text)) {
+        // 处理单行 import
+        if (!text.includes(importStatement)) {
+            text = text.replace(singleImportRegex, (match) => {
+                return `${match}\nimport ${importStatement}`;
             });
         }
     } else {
-        // 如果没有import块，在package声明后添加新的import
+        // 没有 import，添加新的 import
         const packageRegex = /package\s+\w+/;
         text = text.replace(packageRegex, (match) => {
-            return `${match}\n\nimport (\n\t${importStatement}\n)`;
+            return `${match}\n\nimport ${importStatement}`;
         });
     }
 
@@ -152,15 +154,22 @@ function updateSameDirectoryFile(text: string, movedFileDefinitions: string[], n
 }
 
 function updateTargetDirectoryFile(text: string, oldImportPath: string, oldPackageName: string, movedFileDefinitions: string[]): string {
-    // 删除导入语句
-    const importRegex = /import\s*\(([\s\S]*?)\)/;
-    text = text.replace(importRegex, (match, imports) => {
-        const lines = imports.split('\n').filter((line: string) => !line.includes(oldImportPath));
-        if (lines.length <= 0) {
-            return '';
-        }
-        return `import (\n${lines.join('\n')}\n)`;
-    });
+    const singleImportRegex = new RegExp(`^import\\s+"${escapeRegExp(oldImportPath)}"\\s*$`, 'm');
+    const multiImportRegex = /import\s*\(([\s\S]*?)\)/;
+
+    if (multiImportRegex.test(text)) {
+        // 处理多行 import 块
+        text = text.replace(multiImportRegex, (match, imports) => {
+            const lines = imports.split('\n').filter((line: string) => !line.includes(oldImportPath));
+            if (lines.length <= 0) {
+                return '';
+            }
+            return `import (\n${lines.join('\n')}\n)`;
+        });
+    } else {
+        // 处理单行 import
+        text = text.replace(singleImportRegex, '');
+    }
 
     // 删除函数调用的包名前缀
     for (const def of movedFileDefinitions) {
@@ -172,15 +181,22 @@ function updateTargetDirectoryFile(text: string, oldImportPath: string, oldPacka
 }
 
 function updateDifferentDirectoryFile(text: string, oldImportPath: string, newImportPath: string, oldPackageName: string, newPackageName: string): string {
-    // 更新导入路径
-    const importRegex = /import\s*\(([\s\S]*?)\)/;
-    text = text.replace(importRegex, (match, imports) => {
-        const updatedImports = imports.replace(
-            new RegExp(`["']${escapeRegExp(oldImportPath)}["']`, 'g'),
-            `"${newImportPath}"`
-        );
-        return `import (${updatedImports})`;
-    });
+    const singleImportRegex = new RegExp(`^import\\s+"${escapeRegExp(oldImportPath)}"\\s*$`, 'm');
+    const multiImportRegex = /import\s*\(([\s\S]*?)\)/;
+
+    if (multiImportRegex.test(text)) {
+        // 处理多行 import 块
+        text = text.replace(multiImportRegex, (match, imports) => {
+            const updatedImports = imports.replace(
+                new RegExp(`["']${escapeRegExp(oldImportPath)}["']`, 'g'),
+                `"${newImportPath}"`
+            );
+            return `import (${updatedImports})`;
+        });
+    } else {
+        // 处理单行 import
+        text = text.replace(singleImportRegex, `import "${newImportPath}"`);
+    }
 
     // 更新函数调用
     if (oldPackageName !== newPackageName) {
