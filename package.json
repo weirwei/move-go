@@ -1,12 +1,20 @@
 {
   "name": "move-go",
-  "displayName": "move-go",
+  "displayName": "Move Go",
   "description": "Extension for moving go files and folders and updating relative imports in your workspace",
   "version": "0.0.1",
+  "publisher": "weirwei",
+  "icon": "icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/weirwei/move-go"
+  },
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.93.0"
   },
   "categories": [
+    "Programming Languages",
     "Other"
   ],
   "activationEvents": [

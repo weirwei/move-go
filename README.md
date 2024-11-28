@@ -1,49 +1,79 @@
-# Move Go
+# Go Move Auto Update
 
-Move Go 是一个 VSCode 扩展，用于移动 Go 语言文件或目录时自动更新相关的导入路径。
+A Visual Studio Code extension that automatically updates package references in other files when moving or renaming Go directories or files.
 
-## 功能
+## Features
 
-这个扩展提供了以下功能：
+- Automatically detects move or rename operations on Go files and directories
+- Updates package imports in other files when Go files are moved or renamed
+- Supports recursive updates in subdirectories
+- Provides operation logs showing updated files and changes made
 
-- 移动 Go 文件或目录
-- 自动更新移动后的文件中的导入路径
-- 自动更新工作区中其他 Go 文件中对移动文件的导入路径
+Example:
 
-## 使用方法
+When you move or rename a Go file in VSCode, for instance, moving `utils/helper.go` to `common/helper.go`:
 
-1. 在 VSCode 中打开一个 Go 文件。
-2. 使用快捷键 `Ctrl+Shift+P`（Windows/Linux）或 `Cmd+Shift+P`（macOS）打开命令面板。
-3. 输入 "Move Go File and Update Imports" 并选择该命令。
-4. 在弹出的输入框中输入新的文件路径。
-5. 插件会自动移动文件并更新相关的导入路径。
+```go
+// Original file location: utils/helper.go
+package utils
 
-## 要求
+func HelperFunction() {
+    // ...
+}
+```
 
-- Visual Studio Code 1.95.0 或更高版本
-- 在工作区中打开的 Go 项目
+The extension will automatically update import statements in other files:
 
-## 扩展设置
+```go
+// Before update
+import "myproject/utils"
 
-目前，这个扩展不需要任何额外的设置。
+// After update
+import "myproject/common"
+```
 
-## 已知问题
+## Requirements
 
-暂无已知问题。如果你发现任何问题，请在我们的 GitHub 仓库中提出 issue。
+- Visual Studio Code 1.93.0 or higher
+- Make sure `goimports` was installed
 
-## 发布说明
+## Usage
 
-### 0.0.1
+1. After installing the extension, open VSCode in a workspace containing Go projects
+2. Use VSCode's file explorer to move or rename Go files or directories
+3. The extension will automatically detect these operations and update package references in relevant files
 
-- 初始版本
-- 实现了基本的 Go 文件移动和导入路径更新功能
+## Configuration
 
----
+You can customize the behavior of Go Move Auto Update through the following setting:
 
-## 遵循扩展指南
+- `move-go.showPrompt`: Enable/disable the prompt asking for confirmation before updating references (default: `true`)
 
-我们确保遵循了 VSCode 扩展开发的最佳实践。更多信息请参考：
+To modify this setting:
 
-* [扩展指南](https://code.visualstudio.com/api/references/extension-guidelines)
+1. Open VSCode Settings (File > Preferences > Settings)
+2. Search for "Go Move Auto Update"
+3. Find the "Show Prompt" option and check/uncheck it as needed
 
-**享受使用 Move Go 扩展！**
+Alternatively, you can add the following to your `settings.json` file:
+
+```json
+{
+  "move-go.showPrompt": false
+}
+```
+
+Set it to `false` if you want the extension to automatically update references without prompting.
+
+## How It Works
+
+The extension works by listening to VSCode's file system events:
+
+1. Detects move/rename operations on Go files or directories
+2. Scans all Go files in the project
+3. Finds and updates affected import statements in these files
+4. Automatically saves the changed files
+
+## Known Issues
+
+No known issues at this time. If you discover any problems, please submit an issue on the GitHub repository.

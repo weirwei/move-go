@@ -1,47 +1,54 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
 
+// Configuration namespace for the extension
+const CONFIG_NAMESPACE = 'move-go';
+
+// Activation function for the extension
 export function activate(context: vscode.ExtensionContext) {
     console.log('Extension "move-go" is now active!');
 
-    const disposable = vscode.workspace.onWillRenameFiles(async (event) => {
-        for (const file of event.files) {
-            if (path.extname(file.oldUri.fsPath) === '.go') {
-                try {
-                    const thenable = handleFileRename(file.oldUri.fsPath, file.newUri.fsPath);
-                    event.waitUntil(thenable);
-                } catch (error) {
-                    vscode.window.showErrorMessage(`移动Go文件时发生错误: ${error}`);
-                }
-            }
-        }
-    });
-
+    const disposable = vscode.workspace.onWillRenameFiles(handleFileRename);
     context.subscriptions.push(disposable);
 }
 
-async function handleFileRename(oldPath: string, newPath: string): Promise<void> {
-    const config = vscode.workspace.getConfiguration('move-go');
+// Main handler for file rename events
+async function handleFileRename(event: vscode.FileWillRenameEvent) {
+    for (const file of event.files) {
+        if (path.extname(file.oldUri.fsPath) === '.go') {
+            try {
+                const thenable = processFileRename(file.oldUri.fsPath, file.newUri.fsPath);
+                event.waitUntil(thenable);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Error moving Go file: ${error}`);
+            }
+        }
+    }
+}
+
+// Process the file rename operation
+async function processFileRename(oldPath: string, newPath: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
     const showPrompt = config.get<boolean>('showPrompt', true);
 
     if (showPrompt) {
-        const answer = await vscode.window.showWarningMessage(
-            '检测到Go文件移动。是否需要更新引用？',
+        const answer = await vscode.window.showInformationMessage(
+            'Go file movement detected. Update references?',
             { modal: true },
-            '是'
+            'Yes',
+            'No',
         );
 
-        if (answer === '是') {
+        if (answer === 'Yes') {
             await updateImports(oldPath, newPath);
         }
     } else {
-        // 如果禁用了弹窗，直接更新引用
         await updateImports(oldPath, newPath);
     }
 }
 
+// Update imports and references in affected files
 async function updateImports(oldPath: string, newPath: string): Promise<void> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -70,7 +77,7 @@ async function updateImports(oldPath: string, newPath: string): Promise<void> {
 
     const affectedFiles = new Set<string>();
 
-    for (const file of files) {
+    await Promise.all(files.map(async (file) => {
         const filePath = file.fsPath;
         const content = await vscode.workspace.fs.readFile(file);
         let text = content.toString();
@@ -97,25 +104,26 @@ async function updateImports(oldPath: string, newPath: string): Promise<void> {
             await vscode.workspace.fs.writeFile(file, Buffer.from(text));
             affectedFiles.add(filePath);
         }
-    }
-    console.log("affectedFiles",affectedFiles)
-    // 对受影响的文件执行 goimports 命令
-    for (const filePath of affectedFiles) {
-        await runGoimports(filePath);
-    }
+    }));
+
+    console.log("Affected files:", affectedFiles);
+
+    // Run goimports on affected files
+    await Promise.all([...affectedFiles].map(runGoimports));
 }
 
+// Run goimports on a single file
 async function runGoimports(filePath: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         const command = `goimports -w "${filePath}"`;
         cp.exec(command, (error, stdout, stderr) => {
             if (error) {
-                vscode.window.showErrorMessage(`执行 goimports 时发生错误: ${error.message}`);
+                vscode.window.showErrorMessage(`Error executing goimports: ${error.message}`);
                 reject(error);
             } else {
-                console.log(`goimports 执行成功: ${filePath}`);
+                console.log(`goimports executed successfully: ${filePath}`);
                 if (stderr) {
-                    console.error(`goimports 警告: ${stderr}`);
+                    console.error(`goimports warning: ${stderr}`);
                 }
                 resolve();
             }
@@ -123,8 +131,9 @@ async function runGoimports(filePath: string): Promise<void> {
     });
 }
 
+// Extract Go definitions from file content
 function getFileDefinitions(content: string): string[] {
-    const definitions = [];
+    const definitions: string[] = [];
     const lines = content.split('\n');
     const singleLineRegex = /^(func|var|const|type)\s+(\w+)/;
     const blockStartRegex = /^(var|const|type)\s*\(/;
@@ -132,13 +141,11 @@ function getFileDefinitions(content: string): string[] {
     const blockItemRegex = /^\s*(\w+)/;
 
     let inBlock = false;
-    let blockType = '';
 
     for (const line of lines) {
         if (inBlock) {
             if (blockEndRegex.test(line)) {
                 inBlock = false;
-                blockType = '';
             } else {
                 const match = line.match(blockItemRegex);
                 if (match) {
@@ -153,7 +160,6 @@ function getFileDefinitions(content: string): string[] {
                 const blockStartMatch = line.match(blockStartRegex);
                 if (blockStartMatch) {
                     inBlock = true;
-                    blockType = blockStartMatch[1];
                 }
             }
         }
@@ -162,24 +168,19 @@ function getFileDefinitions(content: string): string[] {
     return definitions;
 }
 
+// Update the package name in the moved file
 function updateMovedFile(text: string, newPackageName: string): string {
     const packageRegex = /package\s+(\w+)/;
-    const match = text.match(packageRegex);
-
-    if (match) {
-        text = text.replace(packageRegex, `package ${newPackageName}`);
-    }
-
-    return text;
+    return text.replace(packageRegex, `package ${newPackageName}`);
 }
 
+// Update imports and references in files in the same directory as the moved file
 function updateSameDirectoryFile(text: string, movedFileDefinitions: string[], newPackageName: string, newImportPath: string): string {
     const importStatement = `"${newImportPath}"`;
     const singleImportRegex = /^import\s+"[^"]+"\s*$/m;
     const multiImportRegex = /import\s*\(([\s\S]*?)\)/;
 
     if (multiImportRegex.test(text)) {
-        // 处理多行 import 块
         text = text.replace(multiImportRegex, (match, imports) => {
             if (!imports.includes(importStatement)) {
                 return `import (\n${imports}\t${importStatement}\n)`;
@@ -187,21 +188,18 @@ function updateSameDirectoryFile(text: string, movedFileDefinitions: string[], n
             return match;
         });
     } else if (singleImportRegex.test(text)) {
-        // 处理单行 import
         if (!text.includes(importStatement)) {
             text = text.replace(singleImportRegex, (match) => {
                 return `${match}\nimport ${importStatement}`;
             });
         }
     } else {
-        // 没有 import，添加新的 import
         const packageRegex = /package\s+\w+/;
         text = text.replace(packageRegex, (match) => {
             return `${match}\n\nimport ${importStatement}`;
         });
     }
 
-    // 为移动文件中的定义添加新的包名前缀
     for (const def of movedFileDefinitions) {
         const defRegex = new RegExp(`\\b${escapeRegExp(def)}\\b(?!\\s*:=)`, 'g');
         text = text.replace(defRegex, `${newPackageName}.${def}`);
@@ -209,12 +207,12 @@ function updateSameDirectoryFile(text: string, movedFileDefinitions: string[], n
     return text;
 }
 
+// Update imports and references in files in the target directory
 function updateTargetDirectoryFile(text: string, oldImportPath: string, oldPackageName: string, movedFileDefinitions: string[]): string {
     const singleImportRegex = new RegExp(`^import\\s+"${escapeRegExp(oldImportPath)}"\\s*$`, 'm');
     const multiImportRegex = /import\s*\(([\s\S]*?)\)/;
 
     if (multiImportRegex.test(text)) {
-        // 处理多行 import 块
         text = text.replace(multiImportRegex, (match, imports) => {
             const lines = imports.split('\n').filter((line: string) => !line.includes(oldImportPath));
             if (lines.length <= 0) {
@@ -223,11 +221,9 @@ function updateTargetDirectoryFile(text: string, oldImportPath: string, oldPacka
             return `import (\n${lines.join('\n')}\n)`;
         });
     } else {
-        // 处理单行 import
         text = text.replace(singleImportRegex, '');
     }
 
-    // 删除函数调用的包名前缀
     for (const def of movedFileDefinitions) {
         const prefixRegex = new RegExp(`\\b${escapeRegExp(oldPackageName)}\\.${escapeRegExp(def)}\\b`, 'g');
         text = text.replace(prefixRegex, def);
@@ -236,12 +232,12 @@ function updateTargetDirectoryFile(text: string, oldImportPath: string, oldPacka
     return text;
 }
 
+// Update imports and references in files in different directories
 function updateDifferentDirectoryFile(text: string, oldImportPath: string, newImportPath: string, oldPackageName: string, newPackageName: string): string {
     const singleImportRegex = new RegExp(`^import\\s+"${escapeRegExp(oldImportPath)}"\\s*$`, 'm');
     const multiImportRegex = /import\s*\(([\s\S]*?)\)/;
 
     if (multiImportRegex.test(text)) {
-        // 处理多行 import 块
         text = text.replace(multiImportRegex, (match, imports) => {
             const updatedImports = imports.replace(
                 new RegExp(`["']${escapeRegExp(oldImportPath)}["']`, 'g'),
@@ -250,11 +246,9 @@ function updateDifferentDirectoryFile(text: string, oldImportPath: string, newIm
             return `import (${updatedImports})`;
         });
     } else {
-        // 处理单行 import
         text = text.replace(singleImportRegex, `import "${newImportPath}"`);
     }
 
-    // 更新函数调用
     if (oldPackageName !== newPackageName) {
         const functionCallRegex = new RegExp(`\\b${escapeRegExp(oldPackageName)}\\.`, 'g');
         text = text.replace(functionCallRegex, `${newPackageName}.`);
@@ -263,6 +257,7 @@ function updateDifferentDirectoryFile(text: string, oldImportPath: string, newIm
     return text;
 }
 
+// Get the Go module name from go.mod file
 async function getGoModuleName(workspaceRoot: string): Promise<string> {
     const goModPath = path.join(workspaceRoot, 'go.mod');
     try {
@@ -278,14 +273,16 @@ async function getGoModuleName(workspaceRoot: string): Promise<string> {
     return '';
 }
 
+// Generate Go import path
 function getGoImportPath(moduleName: string, relativePath: string): string {
     const parts = relativePath.split(path.sep);
     const packagePath = parts.slice(0, -1).join('/');
     return `${moduleName}/${packagePath}`;
 }
 
+// Escape special characters in regular expressions
 function escapeRegExp(string: string): string {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function deactivate() { }
+// Deactivation function for the extension
