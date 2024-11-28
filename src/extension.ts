@@ -10,16 +10,28 @@ export function activate(context: vscode.ExtensionContext) {
         for (const file of event.files) {
             if (path.extname(file.oldUri.fsPath) === '.go') {
                 try {
-                    const thenable = updateImports(file.oldUri.fsPath, file.newUri.fsPath);
+                    const thenable = handleFileRename(file.oldUri.fsPath, file.newUri.fsPath);
                     event.waitUntil(thenable);
                 } catch (error) {
-                    vscode.window.showErrorMessage(`更新Go文件时发生错误: ${error}`);
+                    vscode.window.showErrorMessage(`移动Go文件时发生错误: ${error}`);
                 }
             }
         }
     });
 
     context.subscriptions.push(disposable);
+}
+
+async function handleFileRename(oldPath: string, newPath: string): Promise<void> {
+    const answer = await vscode.window.showWarningMessage(
+        '检测到Go文件移动。是否需要更新引用？',
+        { modal: true },
+        '是'
+    );
+
+    if (answer === '是') {
+        await updateImports(oldPath, newPath);
+    }
 }
 
 async function updateImports(oldPath: string, newPath: string): Promise<void> {
