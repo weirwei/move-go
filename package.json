@@ -19,7 +19,17 @@
         "command": "move-go.moveAndUpdateImports",
         "title": "Move Go File and Update Imports"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Move Go",
+      "properties": {
+        "move-go.showPrompt": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a prompt when moving Go files"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",

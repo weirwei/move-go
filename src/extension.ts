@@ -23,13 +23,21 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 async function handleFileRename(oldPath: string, newPath: string): Promise<void> {
-    const answer = await vscode.window.showWarningMessage(
-        '检测到Go文件移动。是否需要更新引用？',
-        { modal: true },
-        '是'
-    );
+    const config = vscode.workspace.getConfiguration('move-go');
+    const showPrompt = config.get<boolean>('showPrompt', true);
 
-    if (answer === '是') {
+    if (showPrompt) {
+        const answer = await vscode.window.showWarningMessage(
+            '检测到Go文件移动。是否需要更新引用？',
+            { modal: true },
+            '是'
+        );
+
+        if (answer === '是') {
+            await updateImports(oldPath, newPath);
+        }
+    } else {
+        // 如果禁用了弹窗，直接更新引用
         await updateImports(oldPath, newPath);
     }
 }
