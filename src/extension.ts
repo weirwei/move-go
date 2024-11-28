@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as cp from 'child_process';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Extension "move-go" is now active!');
@@ -47,24 +48,59 @@ async function updateImports(oldPath: string, newPath: string): Promise<void> {
 
     const files = await vscode.workspace.findFiles('**/*.go');
 
+    const affectedFiles = new Set<string>();
+
     for (const file of files) {
         const filePath = file.fsPath;
         const content = await vscode.workspace.fs.readFile(file);
         let text = content.toString();
+        let isModified = false;
 
         if (filePath === oldPath) {
             text = updateMovedFile(text, newPackageName);
+            isModified = true;
         } else if (path.dirname(filePath) === oldDir) {
             text = updateSameDirectoryFile(text, movedFileDefinitions, newPackageName, newImportPath);
+            isModified = true;
         } else if (path.dirname(filePath) === newDir) {
             text = updateTargetDirectoryFile(text, oldImportPath, oldPackageName, movedFileDefinitions);
+            isModified = true;
         } else {
-            text = updateDifferentDirectoryFile(text, oldImportPath, newImportPath, oldPackageName, newPackageName);
+            const updatedText = updateDifferentDirectoryFile(text, oldImportPath, newImportPath, oldPackageName, newPackageName);
+            if (updatedText !== text) {
+                text = updatedText;
+                isModified = true;
+            }
         }
-        if (text !== content.toString()) {
+
+        if (isModified) {
             await vscode.workspace.fs.writeFile(file, Buffer.from(text));
+            affectedFiles.add(filePath);
         }
     }
+    console.log("affectedFiles",affectedFiles)
+    // 对受影响的文件执行 goimports 命令
+    for (const filePath of affectedFiles) {
+        await runGoimports(filePath);
+    }
+}
+
+async function runGoimports(filePath: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        const command = `goimports -w "${filePath}"`;
+        cp.exec(command, (error, stdout, stderr) => {
+            if (error) {
+                vscode.window.showErrorMessage(`执行 goimports 时发生错误: ${error.message}`);
+                reject(error);
+            } else {
+                console.log(`goimports 执行成功: ${filePath}`);
+                if (stderr) {
+                    console.error(`goimports 警告: ${stderr}`);
+                }
+                resolve();
+            }
+        });
+    });
 }
 
 function getFileDefinitions(content: string): string[] {
