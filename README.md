@@ -14,7 +14,6 @@ Example:
 When you move or rename a Go file in VSCode, for instance, moving `utils/helper.go` to `common/helper.go`:
 
 ```go
-// Original file location: utils/helper.go
 package utils
 
 func HelperFunction() {
@@ -28,8 +27,12 @@ The extension will automatically update import statements in other files:
 // Before update
 import "myproject/utils"
 
+utils.HelperFunction()
+
 // After update
 import "myproject/common"
+
+common.HelperFunction()
 ```
 
 ## Requirements
