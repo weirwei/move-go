@@ -37,7 +37,6 @@ async function processFileRename(oldPath: string, newPath: string): Promise<void
             'Go file movement detected. Update references?',
             { modal: true },
             'Yes',
-            'No',
         );
 
         if (answer === 'Yes') {

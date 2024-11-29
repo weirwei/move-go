@@ -2,7 +2,7 @@
   "name": "move-go",
   "displayName": "Move Go",
   "description": "Extension for moving go files and folders and updating relative imports in your workspace",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "weirwei",
   "icon": "icon.png",
   "license": "MIT",
